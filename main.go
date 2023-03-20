@@ -104,22 +104,23 @@ func run(length uint64, timeLine time.Duration) {
 }
 
 func main() {
+	fmt.Printf("size: %s, workers: %d, pid: %d, client: %t, requiredLimit: %t\n",
+		memSize, workers, pidNum, client, requireCgroupLimit)
 	if !client {
 		workQueue := make(chan struct{}, workers)
 		for {
 			workQueue <- struct{}{}
 			go func() {
 				args := []string{
-					"--size", memSize,
-					"--workers", fmt.Sprintf("%d", workers),
-					"--time", growthTime,
-					"--client", "false",
-					"--pid", fmt.Sprintf("%d", pidNum),
+					"--size=" + memSize,
+					"--workers=" + fmt.Sprintf("%d", workers),
+					"--time=" + growthTime,
+					"--client=" + "true",
+					"--pid=" + fmt.Sprintf("%d", pidNum),
 				}
 
 				if !requireCgroupLimit {
-					args = append(args, "--required-limit")
-					args = append(args, "false")
+					args = append(args, "--required-limit="+"false")
 				}
 
 				cmd := exec.Command("memStress", args...)
@@ -245,4 +246,3 @@ func getMemFromCgroup(pidNum int) (*v1.MemoryStat, error) {
 
 	return stats.Memory, nil
 }
-
