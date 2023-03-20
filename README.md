@@ -10,12 +10,16 @@ This is a tool to simulate memory allocation.
 Usage of ./memStress:
   -client
         the process runs as a client
+  -required-limit
+        required container has resource limit
   -size string
         size of memory you want to allocate (default "0KB")
   -time string
         time to reach the size of memory you allocated (default "0s")
   -workers int
         number of workers allocating memory (default 1)
+  -pid int
+        container pid numer (default 0)
 ```
 
 You can generate a model that simulates a memory usage like `memStress --size 1GiB --time 1m	--workers 2`. This command will generate two workers, each of which will allocate 1GiB of memory and the **allocation process** will last 1 minute.
