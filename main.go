@@ -104,9 +104,13 @@ func run(length uint64, timeLine time.Duration) {
 }
 
 func main() {
-	fmt.Printf("size: %s, workers: %d, pid: %d, client: %t, requiredLimit: %t\n",
-		memSize, workers, pidNum, client, requireCgroupLimit)
+	if err := checkOptions(); err != nil {
+		exitWithError(err)
+	}
+
 	if !client {
+		fmt.Printf("size: %s, workers: %d, pid: %d, client: %t, requiredLimit: %t\n",
+			memSize, workers, pidNum, client, requireCgroupLimit)
 		workQueue := make(chan struct{}, workers)
 		for {
 			workQueue <- struct{}{}
@@ -127,21 +131,16 @@ func main() {
 				cmd.SysProcAttr = &syscall.SysProcAttr{
 					Pdeathsig: syscall.SIGTERM,
 				}
-				err := cmd.Run()
+				outputs, err := cmd.CombinedOutput()
 				if err != nil {
-					exitWithError(err)
+					exitWithError(fmt.Errorf("output: %s, err: %s", string(outputs), err.Error()))
 				}
 				<-workQueue
 			}()
 			time.Sleep(time.Second)
 		}
 	} else {
-		percentage, expectBytes, err := parseSize(memSize)
-		fmt.Fprintf(os.Stdout, "percentage: %.2f, expectBytes: %d\n", percentage, expectBytes)
-		if err != nil {
-			exitWithError(err)
-		}
-
+		percentage, expectBytes := parseSize(memSize)
 		filledSize, err := calculateMemSize(percentage, expectBytes)
 		if err != nil {
 			exitWithError(err)
@@ -149,10 +148,47 @@ func main() {
 
 		timeLine, err := time.ParseDuration(growthTime)
 		if err != nil {
-			fmt.Println(err)
+			exitWithError(err)
 		}
 		run(filledSize/uint64(workers), timeLine)
 	}
+}
+
+func checkOptions() error {
+	if memSize == "" {
+		return fmt.Errorf("options size is required")
+	}
+
+	if workers == 0 {
+		return fmt.Errorf("workers required lager than one")
+	}
+
+	if _, err := time.ParseDuration(growthTime); err != nil {
+		return fmt.Errorf("bad time format")
+	}
+
+	if memSize[len(memSize)-1] == '%' {
+		if pidNum == 0 {
+			return fmt.Errorf("pid number is required when size is the percent value")
+		}
+		percentage, err := strconv.ParseFloat(memSize[0:len(memSize)-1], 64)
+		if err != nil {
+			return fmt.Errorf("bad percent format")
+		}
+		if percentage > 100 || percentage == 0 {
+			return fmt.Errorf("percent value required range (0, 100]")
+		}
+	}
+	if memSize[len(memSize)-1] != '%' {
+		length, err := humanize.ParseBytes(memSize)
+		if err != nil {
+			return fmt.Errorf("bad size format")
+		}
+		if length == 0 {
+			return fmt.Errorf("size is zero value")
+		}
+	}
+	return nil
 }
 
 func exitWithError(err error) {
@@ -163,13 +199,13 @@ func exitWithError(err error) {
 // parseSize parse size
 // Two size formats are supported, which are 100MB or 30%
 // @Author MarsDong 2023-03-20 17:08:11
-func parseSize(memSize string) (float64, uint64, error) {
+func parseSize(memSize string) (float64, uint64) {
 	if memSize[len(memSize)-1] != '%' {
-		length, err := humanize.ParseBytes(memSize)
-		return 0, length, err
+		length, _ := humanize.ParseBytes(memSize)
+		return 0, length
 	}
-	percentage, err := strconv.ParseFloat(memSize[0:len(memSize)-1], 64)
-	return percentage, 0, err
+	percentage, _ := strconv.ParseFloat(memSize[0:len(memSize)-1], 64)
+	return percentage, 0
 }
 
 // calculateMemSize get actual filled size
