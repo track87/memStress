@@ -45,7 +45,7 @@ func init() {
 	flag.StringVar(&growthTime, "time", "0s", "time to reach the size of memory you allocated")
 	flag.IntVar(&workers, "workers", 1, "number of workers allocating memory")
 	flag.BoolVar(&client, "client", false, "the process runs as a client")
-	flag.BoolVar(&requireCgroupLimit, "required-limit", true, "required container has "+
+	flag.BoolVar(&requireCgroupLimit, "required-limit", false, "required container has "+
 		"resource limit")
 	flag.Parse()
 }
@@ -121,12 +121,8 @@ func main() {
 					"--time=" + growthTime,
 					"--client=" + "true",
 					"--pid=" + fmt.Sprintf("%d", pidNum),
+					"--required-limit=" + fmt.Sprintf("%t", requireCgroupLimit),
 				}
-
-				if !requireCgroupLimit {
-					args = append(args, "--required-limit="+"false")
-				}
-
 				cmd := exec.Command("memStress", args...)
 				cmd.SysProcAttr = &syscall.SysProcAttr{
 					Pdeathsig: syscall.SIGTERM,
