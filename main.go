@@ -31,6 +31,7 @@ import (
 )
 
 var (
+	cgroupDir          string
 	requireCgroupLimit bool
 	pidNum             int
 	memSize            string
@@ -41,6 +42,7 @@ var (
 
 func init() {
 	flag.StringVar(&memSize, "size", "0KB", "size of memory you want to allocate")
+	flag.StringVar(&cgroupDir, "cgroup-dir", "/sys/fs/cgroup", "cgroup root path")
 	flag.IntVar(&pidNum, "pid", 0, "container pid numer")
 	flag.StringVar(&growthTime, "time", "0s", "time to reach the size of memory you allocated")
 	flag.IntVar(&workers, "workers", 1, "number of workers allocating memory")
@@ -109,13 +111,14 @@ func main() {
 	}
 
 	if !client {
-		fmt.Printf("size: %s, workers: %d, pid: %d, client: %t, requiredLimit: %t\n",
-			memSize, workers, pidNum, client, requireCgroupLimit)
+		fmt.Printf("cgroup-path: %s, size: %s, workers: %d, pid: %d, client: %t, requiredLimit: %t\n",
+			cgroupDir, memSize, workers, pidNum, client, requireCgroupLimit)
 		workQueue := make(chan struct{}, workers)
 		for {
 			workQueue <- struct{}{}
 			go func() {
 				args := []string{
+					"--cgroup-dir=" + cgroupDir,
 					"--size=" + memSize,
 					"--workers=" + fmt.Sprintf("%d", workers),
 					"--time=" + growthTime,
@@ -123,6 +126,7 @@ func main() {
 					"--pid=" + fmt.Sprintf("%d", pidNum),
 					"--required-limit=" + fmt.Sprintf("%t", requireCgroupLimit),
 				}
+
 				cmd := exec.Command("memStress", args...)
 				cmd.SysProcAttr = &syscall.SysProcAttr{
 					Pdeathsig: syscall.SIGTERM,
@@ -266,7 +270,7 @@ func getMemFromCgroup(pidNum int) (*v1.MemoryStat, error) {
 		return nil, fmt.Errorf("not found root path for memory")
 	}
 
-	cgroupIns, err := cgroups.Load(cgroups.V1, cgroups.StaticPath(memRoot))
+	cgroupIns, err := cgroups.Load(V1, cgroups.StaticPath(memRoot))
 	if err != nil {
 		return nil, err
 	}
@@ -277,4 +281,69 @@ func getMemFromCgroup(pidNum int) (*v1.MemoryStat, error) {
 	}
 
 	return stats.Memory, nil
+}
+
+// V1 custom define cgroup v1 interface
+// @Author MarsDong 2023-03-21 16:35:29
+func V1() ([]cgroups.Subsystem, error) {
+	subsystems, err := defaults(cgroupDir)
+	if err != nil {
+		return nil, err
+	}
+	var enabled []cgroups.Subsystem
+	for _, s := range getAllPather(subsystems) {
+		// check and remove the default groups that do not exist
+		if _, err := os.Lstat(s.Path("/")); err == nil {
+			enabled = append(enabled, s)
+		}
+	}
+	return enabled, nil
+}
+
+type pather interface {
+	cgroups.Subsystem
+	Path(path string) string
+}
+
+func getAllPather(subystems []cgroups.Subsystem) []pather {
+	var out []pather
+	for _, s := range subystems {
+		if p, ok := s.(pather); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// defaults returns all known groups
+func defaults(root string) ([]cgroups.Subsystem, error) {
+	h, err := cgroups.NewHugetlb(root)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	s := []cgroups.Subsystem{
+		cgroups.NewNamed(root, "systemd"),
+		cgroups.NewFreezer(root),
+		cgroups.NewPids(root),
+		cgroups.NewNetCls(root),
+		cgroups.NewNetPrio(root),
+		cgroups.NewPerfEvent(root),
+		cgroups.NewCpuset(root),
+		cgroups.NewCpu(root),
+		cgroups.NewCpuacct(root),
+		cgroups.NewMemory(root),
+		cgroups.NewBlkio(root),
+		cgroups.NewRdma(root),
+	}
+	// only add the devices cgroup if we are not in a user namespace
+	// because modifications are not allowed
+	if !cgroups.RunningInUserNS() {
+		s = append(s, cgroups.NewDevices(root))
+	}
+	// add the hugetlb cgroup if error wasn't due to missing hugetlb
+	// cgroup support on the host
+	if err == nil {
+		s = append(s, h)
+	}
+	return s, nil
 }

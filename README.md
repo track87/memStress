@@ -12,6 +12,8 @@ Usage of ./memStress:
         the process runs as a client
   -required-limit
         required container has resource limit
+  -cgroup-dir
+        special cgroup v1 root path (default "/sys/fs/cgroup")
   -size string
         size of memory you want to allocate (default "0KB")
   -time string
